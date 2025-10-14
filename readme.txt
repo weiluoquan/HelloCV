@@ -1,4 +1,5 @@
-git is a niubid version control system
-git is free software
-nishishui?
-enheng?stupid boss
+我把这周的任务分成了三个知识库：
+1.linux
+2.git
+3.第一周实践任务
+并且在这三个知识库中创建了相关文档，可以根据文档名称查询，便于复习和快速查找资料。如何配置等都包含在了文档之中，readme就简短一些吧！
