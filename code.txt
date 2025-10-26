@@ -1,0 +1,105 @@
+#include <iostream>
+#include <opencv2/opencv.hpp>
+using namespace std;
+using namespace cv;
+
+Scalar red_low1 = Scalar(0, 120, 70);       //选定颜色的数值范围,需要截屏去用自己做的cpp上测试范围
+Scalar red_high1 = Scalar(10, 255, 255);
+Scalar red_low2 = Scalar(170, 120, 70);
+Scalar red_high2 = Scalar(180, 255, 255);
+Scalar green_low = Scalar(23, 126, 131);
+Scalar green_high = Scalar(179, 255, 255);
+
+
+Mat extractColorMask(Mat hsv, Scalar low, Scalar high, Scalar low2  = Scalar(-1),Scalar high2 = Scalar(-1)){        //提取颜色掩码的函数
+    Mat mask1,mask2,mask;
+    inRange(hsv, low, high, mask1);
+    if(low2[0] != -1){
+        inRange(hsv, low2, high2, mask2);
+        mask = mask1 | mask2;
+    }
+    else{
+        mask =mask1;
+    }
+    Mat kernel1 = getStructuringElement(MORPH_ELLIPSE, Size(1,1));      //设置两个不同核进行开闭操作去除噪声,慢慢调整会更精确
+    Mat kernel2 = getStructuringElement(MORPH_ELLIPSE, Size(13,13));
+    morphologyEx(mask, mask, MORPH_OPEN, kernel1);      //开操作
+    morphologyEx(mask, mask, MORPH_CLOSE, kernel2);     //闭操作
+
+    return mask;
+}
+
+int main() {
+    VideoCapture cap("TrafficLight.mp4");
+    if(!cap.isOpened()){
+        cout<<"No!!!"<<endl;
+        return -1;
+    }
+
+    double fps = cap.get(CAP_PROP_FPS);                     //得到关于视频的各种信息
+    int frame_width = cap.get(CAP_PROP_FRAME_WIDTH);
+    int frame_height = cap.get(CAP_PROP_FRAME_HEIGHT);
+    VideoWriter out_video(                              //创建VideoWriter对象,用于保存视频
+        "result.avi",                                   //保存视频的文件名
+        VideoWriter::fourcc('M','J','P','G'),           //视频编码格式
+        fps,                                            //视频帧率
+        Size(frame_width,frame_height),                 //视频尺寸
+        true                        //是否为彩色视频    
+    );
+    if(!out_video.isOpened()){
+        cout<<"No!!!"<<endl;
+        return -1;
+    }
+    Mat frame,hsv,mask_red,mask_green,mask_all;
+    vector<Vec3f> circles;                      //用于存储检测到的圆的信息,每个圆用一个三维向量表示(圆心x坐标,圆心y坐标,半径)
+    
+    
+    while(true){
+        bool ret = cap.read(frame);                 //读取视频的每一帧
+        if(!ret){
+            break;
+        }
+        cvtColor(frame, hsv, COLOR_BGR2HSV);
+        mask_red = extractColorMask(hsv, red_low1, red_high1, red_low2, red_high2);
+        mask_green = extractColorMask(hsv, green_low, green_high);
+        mask_all = mask_red | mask_green;                       //合并红绿掩码用于检测所有颜色的圆
+
+
+        HoughCircles(
+        mask_all,
+        circles,
+        HOUGH_GRADIENT,
+        1.7,        //dp，累加器分辨率与图像分辨率的反比,越大检测速度越快,但可能降低精度
+        500,         //minDist，检测到的圆心之间的最小距离,避免重复检测
+        100,        //param1，传递给Canny边缘检测算子的高阈值
+        35,         //param2，累加器阈值，只有累加器中高于该阈值的圆才会被检测出来,圆形的显著性,越小检测到的圆越多,但误检也越多
+        90,         //minRadius，圆的最小半径
+        140         //maxRadius，圆的最大半径 
+        );
+
+
+        for(size_t i = 0; i < circles.size(); i++){
+            int x = cvRound(circles[i][0]);
+            int y = cvRound(circles[i][1]);
+            int radius = cvRound(circles[i][2]);
+
+            if(mask_all.at<uchar>(y,x) == 255){                     //利用中心点的颜色,巧妙识别是否需要画矩形
+                rectangle(frame,Point(x - radius,y - radius),Point(x + radius,y + radius),Scalar(0,255,0),2);
+            }
+            if(mask_red.at<uchar>(y,x) == 255){                     //红掩膜有反应则标注为红色
+                putText(frame, "Red", Point(20,30), FONT_HERSHEY_SIMPLEX, 1, Scalar(0,0,255),2);
+            }
+            else if(mask_green.at<uchar>(y,x) == 255){              //绿掩膜同理
+                putText(frame, "Green", Point(20,30), FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,0),2);
+            }
+        }
+        out_video.write(frame);
+        imshow("Video Detection & Saving", frame);
+        if(waitKey(30)==27){                    //按下ESC键退出,27为ESC的ASCII码
+            break;
+        }
+    }
+    cap.release();                  //释放VideoCapture对象
+    out_video.release();            //释放VideoWriter对象
+    destroyAllWindows();            //关闭所有窗口
+    return 0;
